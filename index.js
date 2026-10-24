@@ -89,9 +89,7 @@ function makeEmbeds(grouped) {
     const embed = new EmbedBuilder()
       .setColor(0xE91E63)
       .setTitle(`${platform.emoji} ${platform.name} Exploits`)
-      .setFooter({
-  text: `ETWEAKS Lumbre • Last updated`
-})
+      .setFooter({ text: `ETWEAKS Lumbre • Last updated • ${MARKER}` })
 .setTimestamp(new Date());
 
     if (!exploits.length) {
@@ -207,7 +205,7 @@ if (!message.embeds.length) continue;
 
 const isStatusMessage = message.embeds.some(embed => {
   const footer = embed.footer?.text || "";
-  const title = embed.title || "";
+  const title = (embed.title || "").trim();
 
   return (
     footer.includes(MARKER) ||
