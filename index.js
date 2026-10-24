@@ -55,6 +55,7 @@ function yesNo(value) {
   return "Unknown";
 }
 
+
 function exploitLine(item) {
   const name = String(item.title || "Unknown exploit")
     .replace(/[\r\n]/g, " ");
@@ -62,27 +63,24 @@ function exploitLine(item) {
   const website = item.websitelink || item.website || "";
   const version = String(item.version || "Unknown");
 
-  const detected = item.detected === true
-    ? "🔴 Detected"
-    : item.detected === false
-      ? "🟢 Undetected"
-      : "❔ Unknown detection";
+  const updateStatus =
+    item.updateStatus === true
+      ? "🟢 Updated"
+      : item.updateStatus === false
+        ? "🔴 Not Updated"
+        : "❔ Update status unknown";
 
-  const updated = item.updateStatus === true
-    ? "Yes"
-    : item.updateStatus === false
-      ? "No"
-      : "Unknown";
-
-  const safeName = website.startsWith("https://") ||
-                   website.startsWith("http://")
-    ? `[${name}](${website})`
-    : `**${name}**`;
+  const safeName =
+    website.startsWith("https://") ||
+    website.startsWith("http://")
+      ? `[${name}](${website})`
+      : `**${name}**`;
 
   return `${safeName}\n` +
-    `> Version: \`${version}\` • ${detected}\n` +
-    `> Updated: ${updated} • UNC: ${yesNo(item.uncStatus)}`;
+    `> Version: \`${version}\`\n` +
+    `> Status: ${updateStatus} • UNC: ${yesNo(item.uncStatus)}`;
 }
+
 
 function makeEmbeds(platforms) {
   const configs = [
@@ -112,11 +110,7 @@ function makeEmbeds(platforms) {
     }
 
     return new EmbedBuilder()
-      .setColor(
-        exploits.some(item => item.detected === true)
-          ? Colors.Red
-          : Colors.Green
-      )
+      .setColor(Colors.Blurple)
       .setTitle(`${platform.emoji} ${platform.name} Exploits`)
       .setDescription(description)
       .setFooter({
