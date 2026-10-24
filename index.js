@@ -203,13 +203,25 @@ async function run() {
 
     for (const message of batch.values()) {
       if (message.author.id !== client.user.id) continue;
-      if (!message.embeds.length) continue;
+if (!message.embeds.length) continue;
 
-      const footer = message.embeds[0].footer?.text || "";
+const isStatusMessage = message.embeds.some(embed => {
+  const footer = embed.footer?.text || "";
+  const title = embed.title || "";
 
-      if (footer.includes(MARKER) || OLD_MARKER.test(footer)) {
-        existing.push(message);
-      }
+  return (
+    footer.includes(MARKER) ||
+    OLD_MARKER.test(footer) ||
+    (
+      footer.startsWith("ETWEAKS Lumbre") &&
+      /^(Windows|iOS|Android) Exploits$/.test(title)
+    )
+  );
+});
+
+if (isStatusMessage) {
+  existing.push(message);
+}
     }
 
     if (batch.size < 100) break;
@@ -219,29 +231,35 @@ async function run() {
   const nextEmbeds = makeEmbeds(grouped);
 
   const statusMessages = existing.filter(message =>
-    (message.embeds[0].footer?.text || "").includes(MARKER)
-  );
+  message.embeds.some(embed => {
+    const footer = embed.footer?.text || "";
+    const title = embed.title || "";
 
-  let statusMessage = statusMessages[0];
+    return (
+      footer.includes(MARKER) ||
+      (
+        footer.startsWith("ETWEAKS Lumbre") &&
+        title.trim() === "Windows Exploits"
+      )
+    );
+  })
+);
 
-  if (!statusMessage) {
-    statusMessage = await channel.send({
-      embeds: nextEmbeds
-    });
+let statusMessage = statusMessages[0];
 
-    console.log("Created the WEAO status message.");
-  } else if (
-    signature(statusMessage.embeds) !== signature(nextEmbeds)
-  ) {
-    await statusMessage.edit({
-      embeds: nextEmbeds
-    });
+if (!statusMessage) {
+  statusMessage = await channel.send({
+    embeds: nextEmbeds
+  });
 
-    console.log("Updated the WEAO status message.");
-  } else {
-    console.log("No changes detected.");
-  }
+  console.log("Created the WEAO status message.");
+} else {
+  await statusMessage.edit({
+    embeds: nextEmbeds
+  });
 
+  console.log("Updated the WEAO status message.");
+}
   // Delete duplicate status messages and old per-exploit messages.
   for (const message of existing) {
     if (message.id === statusMessage.id) continue;
