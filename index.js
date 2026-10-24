@@ -1,9 +1,16 @@
 
-const { Client, GatewayIntentBits, EmbedBuilder, Colors } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  Colors
+} = require("discord.js");
 
 const API_URL = "https://weao.xyz/api/status/exploits";
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const MARKER = "WEAO_SINGLE_STATUS";
+const OLD_MARKER = /^WEAO_ID:/;
 
 if (!TOKEN || !CHANNEL_ID) {
   console.error("Missing DISCORD_TOKEN or DISCORD_CHANNEL_ID");
@@ -18,73 +25,128 @@ function getId(item) {
   return String(item._id || item.id || item.title || "");
 }
 
-function bool(value) {
-  return value === true ? "Yes" : value === false ? "No" : "Unknown";
+function getPlatforms(item) {
+  const raw = Array.isArray(item.platform)
+    ? item.platform.join(",")
+    : String(item.platform || "");
+
+  const normalized = raw.toLowerCase();
+
+  const platforms = [];
+
+  if (/\bwindows?\b|\bwin32\b|\bwin64\b/.test(normalized)) {
+    platforms.push("Windows");
+  }
+
+  if (/\bios\b|\biphone\b|\bipad\b/.test(normalized)) {
+    platforms.push("iOS");
+  }
+
+  if (/\bandroid\b/.test(normalized)) {
+    platforms.push("Android");
+  }
+
+  return platforms;
 }
 
-function makeEmbed(item) {
-  const embed = new EmbedBuilder()
-    .setColor(
-      item.detected === true ? Colors.Red :
-      item.updateStatus === true ? Colors.Green :
-      Colors.Orange
-    )
-    .setTitle(String(item.title || "Unknown exploit"))
-    .setDescription([
-      item.websitelink ? `[Website](${item.websitelink})` : "",
-      item.discordlink ? `[Discord](${item.discordlink})` : ""
-    ].filter(Boolean).join(" • ") || "No links available.")
-    .addFields(
-      { name: "Version", value: String(item.version || "Unknown"), inline: true },
-      { name: "Platform", value: String(item.platform || "Unknown"), inline: true },
-      { name: "Detected", value: bool(item.detected), inline: true },
-      { name: "Updated", value: bool(item.updateStatus), inline: true },
-      { name: "UNC", value: bool(item.uncStatus), inline: true },
-      { name: "Key system", value: bool(item.keysystem), inline: true }
-    )
-    .setFooter({ text: `WEAO_ID:${getId(item)}` });
-
-  if (typeof item.uncPercentage === "number") {
-    embed.addFields({
-      name: "UNC Score",
-      value: `${item.uncPercentage}%`,
-      inline: true
-    });
-  }
-
-  if (typeof item.suncPercentage === "number") {
-    embed.addFields({
-      name: "sUNC Score",
-      value: `${item.suncPercentage}%`,
-      inline: true
-    });
-  }
-
-  if (item.updatedDate) {
-    const date = new Date(item.updatedDate);
-    if (!Number.isNaN(date.getTime())) embed.setTimestamp(date);
-  }
-
-  return embed;
+function yesNo(value) {
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  return "Unknown";
 }
 
-function signature(embed) {
-  return JSON.stringify({
-    title: embed.title,
-    description: embed.description,
-    color: embed.color,
-    fields: embed.fields.map(f => ({
-      name: f.name,
-      value: f.value,
-      inline: f.inline
-    })),
-    timestamp: embed.timestamp
+function exploitLine(item) {
+  const name = String(item.title || "Unknown exploit")
+    .replace(/[\r\n]/g, " ");
+
+  const website = item.websitelink || item.website || "";
+  const version = String(item.version || "Unknown");
+
+  const detected = item.detected === true
+    ? "🔴 Detected"
+    : item.detected === false
+      ? "🟢 Undetected"
+      : "❔ Unknown detection";
+
+  const updated = item.updateStatus === true
+    ? "Yes"
+    : item.updateStatus === false
+      ? "No"
+      : "Unknown";
+
+  const safeName = website.startsWith("https://") ||
+                   website.startsWith("http://")
+    ? `[${name}](${website})`
+    : `**${name}**`;
+
+  return `${safeName}\n` +
+    `> Version: \`${version}\` • ${detected}\n` +
+    `> Updated: ${updated} • UNC: ${yesNo(item.uncStatus)}`;
+}
+
+function makeEmbeds(platforms) {
+  const configs = [
+    { name: "Windows", emoji: "🪟" },
+    { name: "iOS", emoji: "🍎" },
+    { name: "Android", emoji: "🤖" }
+  ];
+
+  const total = configs.reduce(
+    (sum, p) => sum + platforms[p.name].length,
+    0
+  );
+
+  return configs.map(platform => {
+    const exploits = platforms[platform.name];
+    const lines = exploits.map(exploitLine);
+
+    let description = lines.length
+      ? lines.join("\n\n")
+      : "*No free exploits found for this platform.*";
+
+    // Discord embed description limit is 4096 characters.
+    // Keep room for a note if the list is too long.
+    if (description.length > 3500) {
+      description = description.slice(0, 3450);
+      description += "\n\n*List shortened to fit Discord's limits.*";
+    }
+
+    return new EmbedBuilder()
+      .setColor(
+        exploits.some(item => item.detected === true)
+          ? Colors.Red
+          : Colors.Green
+      )
+      .setTitle(`${platform.emoji} ${platform.name} Exploits`)
+      .setDescription(description)
+      .setFooter({
+        text: `${MARKER} • ${total} free exploits • Auto-updates every 10 min`
+      });
   });
+}
+
+function signature(embeds) {
+  return JSON.stringify(
+    embeds.map(embed => {
+      const data = typeof embed.toJSON === "function"
+        ? embed.toJSON()
+        : embed;
+
+      return {
+        title: data.title,
+        description: data.description,
+        color: data.color,
+        footer: data.footer
+      };
+    })
+  );
 }
 
 async function run() {
   const response = await fetch(API_URL, {
-    headers: { "User-Agent": "WEAO-Discord-Status-Bot/1.0" },
+    headers: {
+      "User-Agent": "WEAO-Discord-Status-Bot/1.0"
+    },
     signal: AbortSignal.timeout(20000)
   });
 
@@ -94,27 +156,49 @@ async function run() {
 
   const payload = await response.json();
 
-  const all = Array.isArray(payload) ? payload :
-    Array.isArray(payload.data) ? payload.data :
-    Array.isArray(payload.exploits) ? payload.exploits : null;
+  const all = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.exploits)
+        ? payload.exploits
+        : null;
 
   if (!all) {
-    throw new Error("Unexpected API response: expected an array of exploits.");
+    throw new Error("Unexpected WEAO API response.");
   }
 
-  const free = all.filter(item => item && item.free === true && getId(item));
+  const grouped = {
+    Windows: [],
+    iOS: [],
+    Android: []
+  };
+
+  for (const item of all) {
+    if (!item || item.free !== true || !getId(item)) continue;
+
+    for (const platform of getPlatforms(item)) {
+      grouped[platform].push(item);
+    }
+  }
+
+  for (const platform of Object.keys(grouped)) {
+    grouped[platform].sort((a, b) =>
+      String(a.title || "").localeCompare(String(b.title || ""))
+    );
+  }
 
   const channel = await client.channels.fetch(CHANNEL_ID);
 
   if (!channel || !channel.isTextBased() || !channel.messages) {
-    throw new Error("Channel not found or not a text channel.");
+    throw new Error("Channel not found or is not a text channel.");
   }
 
-  const messages = new Map();
+  const existing = [];
   let before;
 
-  // Search recent channel history for this bot's existing status messages.
-  // The bot needs Read Message History permission.
+  // Find the existing status message and old messages created by this bot.
+  // Requires View Channel and Read Message History permissions.
   while (true) {
     const options = { limit: 100 };
     if (before) options.before = before;
@@ -123,51 +207,66 @@ async function run() {
     if (!batch.size) break;
 
     for (const message of batch.values()) {
-      if (message.author.id !== client.user.id || !message.embeds.length) continue;
+      if (message.author.id !== client.user.id) continue;
+      if (!message.embeds.length) continue;
 
       const footer = message.embeds[0].footer?.text || "";
-      const match = footer.match(/^WEAO_ID:(.+)$/);
 
-      if (match) messages.set(match[1], message);
+      if (
+        footer.includes(MARKER) ||
+        OLD_MARKER.test(footer)
+      ) {
+        existing.push(message);
+      }
     }
 
     if (batch.size < 100) break;
     before = batch.last().id;
   }
 
-  const currentIds = new Set(free.map(getId));
-  let created = 0;
-  let edited = 0;
-  let removed = 0;
+  const nextEmbeds = makeEmbeds(grouped);
 
-  for (const item of free) {
-    const id = getId(item);
-    const next = makeEmbed(item);
-    const oldMessage = messages.get(id);
+  const statusMessages = existing.filter(message =>
+    (message.embeds[0].footer?.text || "").includes(MARKER)
+  );
 
-    if (!oldMessage) {
-      await channel.send({ embeds: [next] });
-      created++;
-      continue;
-    }
+  // Reuse the existing status message whenever possible.
+  let statusMessage = statusMessages[0];
 
-    if (signature(oldMessage.embeds[0]) !== signature(next.toJSON())) {
-      await oldMessage.edit({ embeds: [next] });
-      edited++;
+  if (!statusMessage) {
+    statusMessage = await channel.send({
+      embeds: nextEmbeds
+    });
+    console.log("Created the single WEAO status message.");
+  } else {
+    const oldSignature = signature(statusMessage.embeds);
+    const newSignature = signature(nextEmbeds);
+
+    if (oldSignature !== newSignature) {
+      await statusMessage.edit({
+        embeds: nextEmbeds
+      });
+      console.log("Updated the WEAO status message.");
+    } else {
+      console.log("No status changes detected.");
     }
   }
 
-  // Remove managed messages for exploits that are no longer free.
-  for (const [id, message] of messages) {
-    if (!currentIds.has(id)) {
-      await message.delete().catch(console.error);
-      removed++;
-    }
+  // Remove duplicate status messages and old per-exploit messages
+  // created by the previous version of this bot.
+  for (const message of existing) {
+    if (message.id === statusMessage.id) continue;
+
+    await message.delete().catch(error => {
+      console.error(`Could not delete old message ${message.id}:`, error.message);
+    });
   }
 
   console.log(
-    `WEAO checked ${all.length} exploits; ${free.length} free; ` +
-    `${created} created, ${edited} edited, ${removed} removed.`
+    `Checked ${all.length} exploits. ` +
+    `Free: ${Object.values(grouped).reduce((sum, list) => sum + list.length, 0)} ` +
+    `(Windows: ${grouped.Windows.length}, iOS: ${grouped.iOS.length}, ` +
+    `Android: ${grouped.Android.length}).`
   );
 }
 
