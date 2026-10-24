@@ -278,18 +278,24 @@ if (!statusMessage) {
   );
 }
 
-client.once("ready", async () => {
+const http = require("http");
+http
+  .createServer((req, res) => res.end("ok"))
+  .listen(process.env.PORT || 3000);
+
+client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  try {
-    await run();
-  } catch (error) {
-    console.error("WEAO update failed:", error);
-    process.exitCode = 1;
-  } finally {
-    client.destroy();
-    process.exit(process.exitCode || 0);
-  }
+  const tick = async () => {
+    try {
+      await run();
+    } catch (error) {
+      console.error("WEAO update failed:", error);
+    }
+  };
+
+  tick();
+  setInterval(tick, 10 * 60 * 1000);
 });
 
 client.login(TOKEN).catch(error => {
