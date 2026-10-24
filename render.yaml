@@ -1,1 +1,14 @@
 
+services:
+  - type: cron
+    name: weao-discord-status
+    runtime: node
+    plan: starter
+    schedule: "*/10 * * * *"
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_CHANNEL_ID
+        sync: false
