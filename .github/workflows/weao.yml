@@ -3,7 +3,7 @@ name: WEAO Status Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "* * * * *"
   workflow_dispatch:
 
 permissions:
