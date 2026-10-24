@@ -87,11 +87,12 @@ function makeEmbeds(grouped) {
     const right = exploits.slice(midpoint);
 
     const embed = new EmbedBuilder()
-      .setColor(Colors.Blurple)
+      .setColor(0xE91E63)
       .setTitle(`${platform.emoji} ${platform.name} Exploits`)
       .setFooter({
-        text: `${MARKER} • ${total} free exploits • Updates every 10 min`
-      });
+  text: `ETWEAKS Lumbre • Last updated`
+})
+.setTimestamp(new Date());
 
     if (!exploits.length) {
       embed.setDescription("*No free exploits found for this platform.*");
