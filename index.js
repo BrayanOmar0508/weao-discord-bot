@@ -132,7 +132,8 @@ function signature(embeds) {
       description: data.description,
       color: data.color,
       fields: data.fields,
-      footer: data.footer
+      footer: data.footer,
+      timestamp: data.timestamp
     };
   }));
 }
