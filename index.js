@@ -1,10 +1,9 @@
-
 const {
   Client,
   GatewayIntentBits,
-  EmbedBuilder,
-  Colors
+  EmbedBuilder
 } = require("discord.js");
+const http = require("http");
 
 const API_URL = "https://weao.xyz/api/status/exploits";
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -12,6 +11,7 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 const MARKER = "WEAO_SINGLE_STATUS";
 const OLD_MARKER = /^WEAO_ID:/;
+const INTERVAL_MS = 10 * 60 * 1000;
 
 if (!TOKEN || !CHANNEL_ID) {
   console.error("Missing DISCORD_TOKEN or DISCORD_CHANNEL_ID");
@@ -70,77 +70,52 @@ function exploitLine(item) {
   return `${safeName}\n> Version: \`${version}\`\n> ${updateLabel(item)}`;
 }
 
+// Joins entries until the 1024-character field limit would be exceeded,
+// so an entry is never cut in half.
+function fitField(lines) {
+  let text = "";
+
+  for (const line of lines) {
+    const next = text ? `${text}\n\n${line}` : line;
+    if (next.length > 1024) break;
+    text = next;
+  }
+
+  return text || "\u200B";
+}
+
 function makeEmbeds(grouped) {
-  const configs = [
-    { name: "Windows", emoji: "" },
-    { name: "iOS", emoji: "" },
-    { name: "Android", emoji: "" }
-  ];
+  const platforms = ["Windows", "iOS", "Android"];
 
-  const total = Object.values(grouped)
-    .reduce((sum, list) => sum + list.length, 0);
-
-  return configs.map(platform => {
-    const exploits = grouped[platform.name];
+  return platforms.map(name => {
+    const exploits = grouped[name];
     const midpoint = Math.ceil(exploits.length / 2);
-    const left = exploits.slice(0, midpoint);
-    const right = exploits.slice(midpoint);
+    const left = exploits.slice(0, midpoint).map(exploitLine);
+    const right = exploits.slice(midpoint).map(exploitLine);
 
     const embed = new EmbedBuilder()
       .setColor(0xE91E63)
-      .setTitle(`${platform.emoji} ${platform.name} Exploits`)
+      .setTitle(`${name} Exploits`)
       .setFooter({ text: `ETWEAKS Lumbre • Last updated • ${MARKER}` })
-.setTimestamp(new Date());
+      .setTimestamp(new Date());
 
     if (!exploits.length) {
       embed.setDescription("*No free exploits found for this platform.*");
       return embed;
     }
 
-    // Discord inline fields create responsive side-by-side columns.
-    const leftText = left.map(exploitLine).join("\n\n");
-    const rightText = right.map(exploitLine).join("\n\n");
-
-    // Each field has a 1024-character limit.
     embed.addFields(
-      {
-        name: "Available",
-        value: leftText.slice(0, 1024),
-        inline: true
-      },
-      {
-        name: "\u200B",
-        value: rightText.slice(0, 1024) || "\u200B",
-        inline: true
-      }
+      { name: "Available", value: fitField(left), inline: true },
+      { name: "\u200B", value: fitField(right), inline: true }
     );
 
     return embed;
   });
 }
 
-function signature(embeds) {
-  return JSON.stringify(embeds.map(embed => {
-    const data = typeof embed.toJSON === "function"
-      ? embed.toJSON()
-      : embed;
-
-    return {
-      title: data.title,
-      description: data.description,
-      color: data.color,
-      fields: data.fields,
-      footer: data.footer,
-      timestamp: data.timestamp
-    };
-  }));
-}
-
 async function run() {
   const response = await fetch(API_URL, {
-    headers: {
-      "User-Agent": "WEAO-Discord-Status-Bot/1.0"
-    },
+    headers: { "User-Agent": "WEAO-Discord-Status-Bot/1.0" },
     signal: AbortSignal.timeout(20000)
   });
 
@@ -162,11 +137,7 @@ async function run() {
     throw new Error("Unexpected WEAO API response.");
   }
 
-  const grouped = {
-    Windows: [],
-    iOS: [],
-    Android: []
-  };
+  const grouped = { Windows: [], iOS: [], Android: [] };
 
   for (const item of all) {
     if (!item || item.free !== true || !getId(item)) continue;
@@ -188,76 +159,58 @@ async function run() {
     throw new Error("Channel not found or not a text channel.");
   }
 
+  // Only look at the latest 100 messages instead of the whole history.
+  const batch = await channel.messages.fetch({ limit: 100 });
   const existing = [];
-  let before;
 
-  // Find the current status message and old messages from the previous bot.
-  while (true) {
-    const options = { limit: 100 };
-    if (before) options.before = before;
+  for (const message of batch.values()) {
+    if (message.author.id !== client.user.id) continue;
+    if (!message.embeds.length) continue;
 
-    const batch = await channel.messages.fetch(options);
-    if (!batch.size) break;
+    const isStatusMessage = message.embeds.some(embed => {
+      const footer = embed.footer?.text || "";
+      const title = (embed.title || "").trim();
 
-    for (const message of batch.values()) {
-      if (message.author.id !== client.user.id) continue;
-if (!message.embeds.length) continue;
+      return (
+        footer.includes(MARKER) ||
+        OLD_MARKER.test(footer) ||
+        (
+          footer.startsWith("ETWEAKS Lumbre") &&
+          /^(Windows|iOS|Android) Exploits$/.test(title)
+        )
+      );
+    });
 
-const isStatusMessage = message.embeds.some(embed => {
-  const footer = embed.footer?.text || "";
-  const title = (embed.title || "").trim();
-
-  return (
-    footer.includes(MARKER) ||
-    OLD_MARKER.test(footer) ||
-    (
-      footer.startsWith("ETWEAKS Lumbre") &&
-      /^(Windows|iOS|Android) Exploits$/.test(title)
-    )
-  );
-});
-
-if (isStatusMessage) {
-  existing.push(message);
-}
-    }
-
-    if (batch.size < 100) break;
-    before = batch.last().id;
+    if (isStatusMessage) existing.push(message);
   }
 
   const nextEmbeds = makeEmbeds(grouped);
 
   const statusMessages = existing.filter(message =>
-  message.embeds.some(embed => {
-    const footer = embed.footer?.text || "";
-    const title = embed.title || "";
+    message.embeds.some(embed => {
+      const footer = embed.footer?.text || "";
+      const title = (embed.title || "").trim();
 
-    return (
-      footer.includes(MARKER) ||
-      (
-        footer.startsWith("ETWEAKS Lumbre") &&
-        title.trim() === "Windows Exploits"
-      )
-    );
-  })
-);
+      return (
+        footer.includes(MARKER) ||
+        (
+          footer.startsWith("ETWEAKS Lumbre") &&
+          title === "Windows Exploits"
+        )
+      );
+    })
+  );
 
-let statusMessage = statusMessages[0];
+  let statusMessage = statusMessages[0];
 
-if (!statusMessage) {
-  statusMessage = await channel.send({
-    embeds: nextEmbeds
-  });
+  if (!statusMessage) {
+    statusMessage = await channel.send({ embeds: nextEmbeds });
+    console.log("Created the WEAO status message.");
+  } else {
+    await statusMessage.edit({ embeds: nextEmbeds });
+    console.log("Updated the WEAO status message.");
+  }
 
-  console.log("Created the WEAO status message.");
-} else {
-  await statusMessage.edit({
-    embeds: nextEmbeds
-  });
-
-  console.log("Updated the WEAO status message.");
-}
   // Delete duplicate status messages and old per-exploit messages.
   for (const message of existing) {
     if (message.id === statusMessage.id) continue;
@@ -278,24 +231,30 @@ if (!statusMessage) {
   );
 }
 
-const http = require("http");
+// Tiny web server so Render sees an open port and UptimeRobot can ping it.
 http
   .createServer((req, res) => res.end("ok"))
   .listen(process.env.PORT || 3000);
 
+let running = false;
+
+async function tick() {
+  if (running) return; // never overlap two runs
+  running = true;
+
+  try {
+    await run();
+  } catch (error) {
+    console.error("WEAO update failed:", error);
+  } finally {
+    running = false;
+  }
+}
+
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
-
-  const tick = async () => {
-    try {
-      await run();
-    } catch (error) {
-      console.error("WEAO update failed:", error);
-    }
-  };
-
   tick();
-  setInterval(tick, 10 * 60 * 1000);
+  setInterval(tick, INTERVAL_MS);
 });
 
 client.login(TOKEN).catch(error => {
