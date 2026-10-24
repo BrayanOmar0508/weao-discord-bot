@@ -231,30 +231,18 @@ async function run() {
   );
 }
 
-// Tiny web server so Render sees an open port and UptimeRobot can ping it.
-http
-  .createServer((req, res) => res.end("ok"))
-  .listen(process.env.PORT || 3000);
-
-let running = false;
-
-async function tick() {
-  if (running) return; // never overlap two runs
-  running = true;
+client.once("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
 
   try {
     await run();
   } catch (error) {
     console.error("WEAO update failed:", error);
+    process.exitCode = 1;
   } finally {
-    running = false;
+    client.destroy();
+    process.exit(process.exitCode || 0);
   }
-}
-
-client.once("ready", () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  tick();
-  setInterval(tick, INTERVAL_MS);
 });
 
 client.login(TOKEN).catch(error => {
