@@ -96,7 +96,7 @@ function makeEmbeds(grouped) {
     const embed = new EmbedBuilder()
       .setColor(0xE91E63)
       .setTitle(`${name} Exploits`)
-      .setFooter({ text: `ETWEAKS Lumbre • Last updated • ${MARKER}` })
+      .setFooter({ text: "ETWEAKS Lumbre • Last updated" })
       .setTimestamp(new Date());
 
     if (!exploits.length) {
